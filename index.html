@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Over the Changes</title>
+<meta name="theme-color" content="#161616">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Changes">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="manifest" href="manifest.webmanifest">
+<!--FONTS--><link rel="stylesheet" href="css/fonts.css"><!--/FONTS-->
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<!--BODY-->
+<div class="wrap">
+  <header class="mast">
+    <h1><span class="cut c1">Over the</span> <span class="cut c2">Changes</span></h1>
+    <p class="intro">Loop a chord progression on piano and sing over it. Run a scale on every chord, or place a lick on the changes, then move it in time and up and down the scale until it lands.</p>
+  </header>
+
+  <!-- 1. the progression -->
+  <section class="panel taped" id="changes" aria-labelledby="chHead">
+    <div class="phead">
+      <h2 class="tag" id="chHead">The changes</h2>
+      <p class="progline" id="progLine"></p>
+    </div>
+    <div class="fields">
+      <label class="wide" for="progSel">Progression<select id="progSel"></select></label>
+      <label for="keySel">Key<select id="keySel"></select></label>
+      <label for="soundSel">Band<select id="soundSel"></select></label>
+      <label for="barsSel">Bars per chord<select id="barsSel"><option value="1">1 bar</option><option value="2">2 bars</option></select></label>
+    </div>
+    <p class="pnote" id="progNote"></p>
+    <div class="row">
+      <button class="btn" type="button" id="pbNew">+ Make my own</button>
+      <button class="btn" type="button" id="pbEdit" hidden>Edit this one</button>
+    </div>
+
+    <div class="builder" id="pbPanel" hidden>
+      <h3>Make my own</h3>
+      <div class="fields">
+        <label class="wide" for="pbName">Name<input id="pbName" type="text" maxlength="40" placeholder="My progression" autocomplete="off"></label>
+        <label for="pbTon">Feel<select id="pbTon">
+          <option value="major">Major</option><option value="minor">Minor</option><option value="dorian">Dorian</option>
+          <option value="mixolydian">Mixolydian</option><option value="blues">Blues</option></select></label>
+      </div>
+      <ol class="slots" id="pbSlots"></ol>
+      <div class="row">
+        <button class="btn" type="button" id="pbAdd">+ Chord</button>
+        <button class="btn" type="button" id="pbDel">− Last chord</button>
+        <button class="btn" type="button" id="pbHear">Hear it</button>
+      </div>
+      <p class="pbpreview" id="pbPreview"></p>
+      <div class="row">
+        <button class="btn pri" type="button" id="pbSave">Save progression</button>
+        <button class="btn" type="button" id="pbClose">Cancel</button>
+        <button class="btn danger" type="button" id="pbRemove" hidden>Delete</button>
+      </div>
+    </div>
+
+    <div class="cards" id="cards"></div>
+
+    <div class="mapbox">
+      <p class="maptitle" id="mapTitle"></p>
+      <div class="kbd-wrap"><div class="kbd" id="kbd"></div></div>
+      <p class="legend"><span class="lg in"></span> in the scale <span class="lg tgt"></span> land here <span class="lg avd">×</span> don't hold</p>
+    </div>
+  </section>
+
+  <!-- 2. what you sing -->
+  <section class="panel" id="sing" aria-labelledby="singHead">
+    <div class="phead">
+      <h2 class="tag pink" id="singHead">What you sing</h2>
+      <div class="seg" role="group" aria-label="Practice">
+        <button type="button" class="segb" data-src="scales" id="srcScales">Scales</button>
+        <button type="button" class="segb" data-src="licks" id="srcLicks">Licks</button>
+      </div>
+    </div>
+
+    <div id="scalesBox">
+      <p class="lead">Each chord gets its own scale run. The pattern restarts on every chord, so you hear how the notes shift when the chord changes.</p>
+      <div class="chips" id="patChips"></div>
+      <p class="hint" id="patHint"></p>
+    </div>
+
+    <div id="licksBox">
+      <div class="shelf">
+        <div class="shelftabs" role="group" aria-label="Lick shelf">
+          <button type="button" class="stab" data-shelf="blocks">Blocks</button>
+          <button type="button" class="stab" data-shelf="licks">Licks</button>
+          <button type="button" class="stab" data-shelf="runs">Runs</button>
+        </div>
+        <div class="chips" id="shelfChips"></div>
+        <p class="lickdesc" id="lickDesc"></p>
+      </div>
+      <div class="row tools">
+        <button class="btn" type="button" id="aFill" disabled>Every chord</button>
+        <button class="btn" type="button" id="aUndo" disabled>Undo</button>
+        <button class="btn" type="button" id="aClear">Clear</button>
+      </div>
+      <p class="hint" id="aHint"></p>
+    </div>
+
+    <div class="lane-wrap" id="laneWrap"><div class="lane" id="lane"></div></div>
+    <p class="lanenote" id="laneNote"></p>
+
+    <div class="seltools" id="selTools" hidden>
+      <p id="selText"></p>
+      <div class="row">
+        <button class="btn" type="button" id="mLeft" aria-label="Move earlier">◀ Earlier</button>
+        <button class="btn" type="button" id="mRight" aria-label="Move later">Later ▶</button>
+        <button class="btn" type="button" id="mUp" aria-label="Move up one scale step">▲ Up a step</button>
+        <button class="btn" type="button" id="mDown" aria-label="Move down one scale step">▼ Down a step</button>
+        <button class="btn danger" type="button" id="mRemove">Remove</button>
+      </div>
+    </div>
+
+    <div class="fields drillrow">
+      <label for="modeSel">Piano plays<select id="modeSel">
+        <option value="listen">The notes with you</option>
+        <option value="along">The notes, quietly</option>
+        <option value="call">Call and response</option>
+        <option value="band">Only the chords</option></select></label>
+      <label for="drillSel" id="drillWrap">Each loop<select id="drillSel">
+        <option value="same">Stays the same</option>
+        <option value="walk">Step walk</option>
+        <option value="shift">Beat shift</option></select></label>
+      <label for="loopsSel">Loops<select id="loopsSel">
+        <option value="2">2</option><option value="4">4</option><option value="8">8</option><option value="16">16</option><option value="0">Until I stop</option></select></label>
+    </div>
+    <p class="hint" id="drillNote"></p>
+
+    <div class="saved" id="savedBox">
+      <h3>Saved licks</h3>
+      <div class="row">
+        <label class="grow" for="sName">Name<input id="sName" type="text" maxlength="50" placeholder="Name this arrangement" autocomplete="off"></label>
+        <button class="btn" type="button" id="sSave">Save</button>
+      </div>
+      <div class="row">
+        <label class="grow" for="sList">Your arrangements<select id="sList"></select></label>
+        <button class="btn" type="button" id="sLoad">Load</button>
+        <button class="btn danger" type="button" id="sDelete">Delete</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. setup -->
+  <details class="panel setup" id="setup">
+    <summary><span class="tag blue">Setup</span></summary>
+    <div class="fields">
+      <label for="loSel">Lowest note<select id="loSel"></select></label>
+      <label for="hiSel">Highest note<select id="hiSel"></select></label>
+      <label for="apSel">Licks use<select id="apSel">
+        <option value="key">One scale for the whole key</option>
+        <option value="chord">Each chord's own scale</option></select></label>
+      <label for="clickSel">Click<select id="clickSel"><option value="1">On</option><option value="0">Off</option></select></label>
+      <label for="synthSel">Sound<select id="synthSel"><option value="0">Grand piano</option><option value="1">Simple synth</option></select></label>
+    </div>
+    <div class="soundrow">
+      <button class="btn" type="button" id="soundTest">Test sound</button>
+      <button class="btn" type="button" id="pianoRetry" hidden>Retry piano</button>
+      <p id="soundStatus" aria-live="polite"></p>
+    </div>
+    <div class="backup">
+      <h3>Move your progressions and saved licks</h3>
+      <p>Everything you make is saved in this browser only. To move it to another device, copy it here, then paste it into the same box there and tap Add.</p>
+      <textarea id="bkText" rows="3" spellcheck="false" aria-label="Backup text"></textarea>
+      <div class="row">
+        <button class="btn" type="button" id="bkCopy">Copy mine</button>
+        <button class="btn" type="button" id="bkAdd">Add pasted</button>
+        <span id="bkMsg" aria-live="polite"></span>
+      </div>
+    </div>
+  </details>
+
+  <footer class="foot">
+    <p>Blocks by <a href="https://www.youtube.com/watch?v=saWqsqZUy5M" target="_blank" rel="noopener">Crystal Cherelle, Indie Artist School</a>. Progressions mostly from <a href="https://www.youtube.com/@DavidBennettPiano" target="_blank" rel="noopener">David Bennett</a>. Theory engine from <a href="https://rjbrown85.github.io/Vocallicks/" target="_blank" rel="noopener">Vocal Licks</a>. Salamander Grand Piano by Alexander Holm (CC BY 3.0), played with <a href="https://tonejs.github.io/" target="_blank" rel="noopener">Tone.js</a>.</p>
+  </footer>
+</div>
+
+<div class="dock" id="dock">
+  <div class="dock-in">
+    <button class="btn pri play" type="button" id="play" aria-label="Play the loop">▶ Play</button>
+    <div class="tempo">
+      <button class="btn tb" type="button" id="tDown" aria-label="Slower">−</button>
+      <label for="tempo" class="tval"><span id="tempoVal">70</span><small>bpm</small></label>
+      <button class="btn tb" type="button" id="tUp" aria-label="Faster">+</button>
+      <input type="range" id="tempo" min="40" max="140" step="1" aria-label="Tempo">
+    </div>
+    <div class="status" aria-live="polite"><b id="stMain">Ready</b><span id="stDetail"></span></div>
+    <span class="snd wait" id="sndChip">Piano</span>
+  </div>
+</div>
+<!--/BODY-->
+<!--TONE--><script src="vendor/Tone.min.js"></script><!--/TONE-->
+<!--JS-->
+<script>window.OTC_MIRROR = "https://cdn.jsdelivr.net/gh/rjbrown85/over-the-changes@main/piano/";</script>
+<script src="js/theory.js"></script>
+<script src="js/data.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/band.js"></script>
+<script src="js/app.js"></script>
+<!--/JS-->
+<!--SW--><script>if ("serviceWorker" in navigator && location.protocol === "https:") window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script><!--/SW-->
+</body>
+</html>
