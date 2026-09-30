@@ -11,7 +11,7 @@
   };
 
   /* ---------- settings ---------- */
-  const DEF = { prog: "axis", key: 7, style: "pop", feels: {}, drums: true, lead: "piano", bars: 1, src: "licks", pattern: "five", drill: "same", mode: "listen", loops: 4,
+  const DEF = { prog: "axis", key: 7, style: "pop", feels: {}, drums: true, lead: "piano", bars: 1, src: "licks", pattern: "five", drill: "same", mode: "listen", loops: 4, tool: "licks", grid: .25, noteLen: 1,
     tempo: 70, lo: 52, hi: 72, approach: "key", click: true, synth: false, shelf: "blocks" };
   const S = Object.assign({}, DEF, store.get("otc-settings", {}));
   const saveS = () => store.set("otc-settings", S);
@@ -59,13 +59,26 @@
   let work = store.get("otc-work", {}), saved = store.get("otc-saved", []);
   if (typeof work !== "object" || Array.isArray(work) || !work) work = {};
   if (!Array.isArray(saved)) saved = [];
-  const persist = () => { store.set("otc-work", work); store.set("otc-saved", saved); };
+  /* your own notes, per progression: {beat, dur, midi} */
+  let notesWork = store.get("otc-notes", {});
+  if (typeof notesWork !== "object" || Array.isArray(notesWork) || !notesWork) notesWork = {};
+  const persist = () => { store.set("otc-work", work); store.set("otc-saved", saved); store.set("otc-notes", notesWork); };
   const items = () => (work[S.prog] = (work[S.prog] || []).filter(it => riffById(it.rid)));
   const setItems = arr => { work[S.prog] = arr; persist(); };
+  const okNote = n => n && isFinite(n.beat) && isFinite(n.dur) && isFinite(n.midi) && n.dur > 0;
+  const myNotes = () => (notesWork[S.prog] = (notesWork[S.prog] || []).filter(okNote));
+  const setMyNotes = arr => { notesWork[S.prog] = arr; persist(); };
+  const cloneItems = arr => arr.map(i => Object.assign({}, i, i.skip ? { skip: i.skip.slice() } : {}));
+  const cloneNotes = arr => arr.map(n => ({ beat: n.beat, dur: n.dur, midi: n.midi }));
   let undoStack = [], undoProg = null;
   function snap() {
     if (undoProg !== S.prog) { undoStack = []; undoProg = S.prog; }
-    undoStack.push(items().map(i => Object.assign({}, i))); if (undoStack.length > 50) undoStack.shift();
+    undoStack.push({ items: cloneItems(items()), notes: cloneNotes(myNotes()) }); if (undoStack.length > 60) undoStack.shift();
+  }
+  function undo() {
+    const prev = undoStack.pop(); if (!prev) return;
+    work[S.prog] = prev.items; notesWork[S.prog] = prev.notes; persist();
+    selItem = null; selNote = null; changed(true);
   }
   /* a starter so the first view shows what the lane does */
   const needSeed = !store.get("otc-seeded", false) && !work[S.prog];
@@ -102,7 +115,7 @@
       if (prev && span[0] < prev.span[1] - 1e-6) { skipped++; return; }
       out.push({ item: it, riff: r, c: r.c, on: r.on, rank: pl.rank, target: pl.target, landChord: pl.landChord, span, lastMidi: pl.lastMidi,
         chain: prevLast != null && Math.abs(pl.first - prevLast) <= 2, nudgeMin: pl.nudgeMin, nudgeMax: pl.nudgeMax,
-        notes: pl.notes.map((n, j) => Object.assign({}, n, { vel: velOf(r, j, pl.notes.length) })) });
+        notes: pl.notes.map((n, j) => Object.assign({}, n, { j, muted: !!(it.skip && it.skip.includes(j)), vel: velOf(r, j, pl.notes.length) })) });
     });
     return { placed: out, skipped, off, sh };
   }
@@ -167,7 +180,9 @@
   function compute(p) {
     const ctx = ctxNow(), prog = progObj();
     const r = S.src === "scales" ? placeScales(ctx) : placeLicks(ctx, p || 0);
-    let i = 0; r.placed.forEach(pl => pl.notes.forEach(n => { n.i = i++; }));
+    r.mine = S.src === "scales" ? [] : myNotes().filter(n => n.beat < ctx.loopBeats - 1e-6)
+      .map(n => ({ beat: n.beat, dur: Math.min(n.dur, ctx.loopBeats - n.beat), midi: n.midi, vel: .82, own: true, ref: n }));
+    let i = 0; r.placed.forEach(pl => pl.notes.forEach(n => { n.i = i++; })); r.mine.forEach(n => { n.i = i++; });
     const C = Object.assign({ ctx, prog, p: p || 0 }, r);
     C.fl = flats(C);
     return C;
@@ -175,8 +190,10 @@
 
   /* ---------- state for drawing ---------- */
   let lastC = null, laneC = null, cur = 0;
-  let selRid = null, selItem = null, preview = null, drag = null, spotCache = [], geom = null, fillMsg = null;
-  const STEP = 6, SPOT_H = 32, HEAD = 30;
+  let selRid = null, selItem = null, selNote = null, preview = null, drag = null, ndrag = null, spotCache = [], geom = null, fillMsg = null;
+  const SPOT_H = 34, HEAD = 32;
+  const ROW = () => (matchMedia("(pointer:coarse)").matches ? 17 : 14);   // one row per half step
+  const writing = () => S.src === "licks" && S.tool === "notes";
 
   /* ---------- the changes panel ---------- */
   function drawProgPanel(C) {
@@ -256,53 +273,109 @@
     setStatus(T.chordName(ch, C.fl), `${T.spell(ch.root, C.fl)} ${C.ctx.infos[i].modeName}`);
   }
 
-  /* ---------- the lane ---------- */
+  /* ---------- the lane: a piano roll, one row per half step, with a keyboard on the left ---------- */
+  const BLACK = [1, 3, 6, 8, 10];
   function laneGeom(C) {
-    const wrap = $("#laneWrap"), avail = wrap.clientWidth - 4;
-    const px = Math.max(28, avail > 0 ? avail / C.ctx.loopBeats : 28);
-    const bottom = S.src === "licks" ? SPOT_H : 0;
-    return { px, lo: S.lo, bottom, H: HEAD + (S.hi - S.lo) * STEP + 28 + bottom };
+    const wrap = $("#laneWrap"), avail = wrap.clientWidth - 2, row = ROW();
+    const px = Math.max(30, avail > 0 ? avail / C.ctx.loopBeats : 30);
+    const bottom = S.src === "licks" && !writing() ? SPOT_H : 0;
+    return { px, lo: S.lo, hi: S.hi, row, bottom, H: HEAD + (S.hi - S.lo + 1) * row + bottom };
   }
-  const brickBottom = m => ((m - geom.lo) * STEP + 4 + geom.bottom) + "px";
+  const rowTop = m => HEAD + (geom.hi - m) * geom.row;
+  function placeBrick(el, nt) {
+    el.style.left = (nt.beat * geom.px + 1) + "px"; el.style.width = Math.max(7, nt.dur * geom.px - 2) + "px";
+    el.style.top = (rowTop(nt.midi) + 1) + "px"; el.style.height = (geom.row - 2) + "px";
+  }
+  function drawKeys(fl) {
+    const k = $("#keys"); k.innerHTML = ""; k.style.height = geom.H + "px";
+    const head = document.createElement("div"); head.className = "khead"; head.style.height = HEAD + "px"; k.appendChild(head);
+    for (let m = geom.hi; m >= geom.lo; m--) {
+      const b = document.createElement("button"); b.type = "button";
+      const blk = BLACK.includes(mod(m));
+      b.className = "key " + (blk ? "kb" : "kw") + (mod(m) === 0 ? " kc" : "");
+      b.style.height = geom.row + "px";
+      b.textContent = blk ? "" : (mod(m) === 0 ? pitch(m, fl) : T.spell(m, fl));
+      b.setAttribute("aria-label", pitch(m, fl)); b.title = pitch(m, fl);
+      b.onclick = () => hearNote(m);
+      k.appendChild(b);
+    }
+  }
   function drawLane(C) {
     laneC = C;
     const lane = $("#lane"); lane.innerHTML = "";
     geom = laneGeom(C);
-    const { px } = geom, { ctx, fl } = C, licks = S.src === "licks";
+    const { px, row } = geom, { ctx, fl } = C, licks = S.src === "licks", write = writing();
     lane.style.width = (ctx.loopBeats * px) + "px"; lane.style.height = geom.H + "px";
+    lane.classList.toggle("writing", write);
+    lane.style.setProperty("--row", row + "px"); lane.style.setProperty("--head", HEAD + "px");
+    drawKeys(fl);
+    // black-key rows and C lines
+    for (let m = geom.hi; m >= geom.lo; m--) {
+      if (!BLACK.includes(mod(m)) && mod(m) !== 0) continue;
+      const r = document.createElement("div"); r.className = BLACK.includes(mod(m)) ? "lrow blk" : "lrow cline";
+      r.style.top = rowTop(m) + "px"; r.style.height = row + "px"; lane.appendChild(r);
+    }
     ctx.chords.forEach((ch, i) => {
       const seg = document.createElement("div"); seg.className = "lchord";
       seg.style.left = (ctx.starts[i] * px) + "px"; seg.style.width = (ctx.beats[i] * px) + "px";
       seg.innerHTML = `<span>${esc(T.chordName(ch, fl))}</span>`;
       lane.appendChild(seg);
       for (let k = 1; k < ctx.beats[i]; k++) { const bt = document.createElement("div"); bt.className = "lbeat"; bt.style.left = ((ctx.starts[i] + k) * px) + "px"; lane.appendChild(bt); }
+      // while writing, tint the rows: chord tones pink, the rest of the scale blue
+      if (write) {
+        const set = mapSet(C, i), tones = arpPcs(ch);
+        for (let m = geom.lo; m <= geom.hi; m++) {
+          const pc = mod(m), tone = tones.includes(pc);
+          if (!tone && !set.includes(pc)) continue;
+          const t = document.createElement("div"); t.className = "tint " + (tone ? "tone" : "scale");
+          t.style.left = (ctx.starts[i] * px) + "px"; t.style.width = (ctx.beats[i] * px) + "px";
+          t.style.top = rowTop(m) + "px"; t.style.height = row + "px"; lane.appendChild(t);
+        }
+      }
     });
     C.placed.forEach(pl => pl.notes.forEach(nt => {
       const b = document.createElement("div");
-      b.className = "brick" + (nt.last ? " last" : "") + (nt.alt ? " alt" : "") + (pl.item && pl.item === selItem ? " picked" : "");
+      b.className = "brick lk" + (nt.last ? " last" : "") + (nt.alt ? " alt" : "") + (nt.muted ? " muted" : "") + (pl.item && pl.item === selItem ? " picked" : "");
       b.dataset.i = nt.i;
       b.style.setProperty("--c", pl.c); b.style.setProperty("--on", pl.on);
-      b.style.left = (nt.beat * px + 1) + "px"; b.style.width = Math.max(8, nt.dur * px - 2) + "px";
-      b.style.bottom = brickBottom(nt.midi);
-      b.textContent = nt.dur * px > 20 ? T.spell(nt.midi, fl) : "";
-      b.title = pitch(nt.midi, fl) + (nt.last ? " (landing note)" : "");
+      placeBrick(b, nt);
+      b.textContent = nt.dur * px > 22 ? T.spell(nt.midi, fl) : "";
+      b.title = pitch(nt.midi, fl) + (nt.muted ? " (muted: tap to bring it back)" : nt.last ? " (landing note)" : "");
+      if (write && pl.item) {
+        b.setAttribute("role", "button"); b.tabIndex = 0;
+        b.setAttribute("aria-label", `${pl.riff.name} note ${pitch(nt.midi, fl)}. ${nt.muted ? "Muted. Activate to bring it back." : "Activate to mute it."}`);
+        b.onclick = () => toggleMute(pl.item, nt.j);
+        b.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleMute(pl.item, nt.j); } };
+      }
       lane.appendChild(b);
     }));
+    (C.mine || []).forEach(nt => {
+      const b = document.createElement("div");
+      b.className = "brick own" + (nt.ref === selNote ? " picked" : "");
+      b.dataset.i = nt.i; b.dataset.own = myNotes().indexOf(nt.ref);
+      placeBrick(b, nt);
+      b.textContent = nt.dur * px > 22 ? T.spell(nt.midi, fl) : "";
+      b.title = `${pitch(nt.midi, fl)}, your note`;
+      if (write) { b.tabIndex = 0; b.setAttribute("role", "button"); b.setAttribute("aria-label", `Your note ${pitch(nt.midi, fl)} at ${fmtBeat(nt.beat)}, ${fmtLen(nt.dur)}. Arrow keys move it, Shift plus arrows changes its length, Delete removes it.`); }
+      const hdl = document.createElement("i"); hdl.className = "rs"; b.appendChild(hdl);
+      lane.appendChild(b);
+    });
     const ph = document.createElement("div"); ph.className = "playhead"; ph.id = "playhead"; ph.hidden = !A.isRunning(); lane.appendChild(ph);
-    if (!licks) return;
+    if (!licks || write) return;
     C.placed.forEach(pl => {
       const lo = Math.min(...pl.notes.map(n => n.midi)), hi = Math.max(...pl.notes.map(n => n.midi));
       const h = document.createElement("button"); h.type = "button"; h.className = "grab" + (pl.item === selItem ? " sel" : "");
       h.style.left = (pl.span[0] * px - 2) + "px"; h.style.width = ((pl.span[1] - pl.span[0]) * px + 4) + "px";
-      h.style.bottom = ((lo - geom.lo) * STEP + geom.bottom) + "px"; h.style.height = ((hi - lo) * STEP + 30) + "px";
+      h.style.top = (rowTop(hi) - 3) + "px"; h.style.height = ((hi - lo + 1) * row + 6) + "px";
       h.setAttribute("aria-label", `${pl.riff.name} at ${fmtBeat(pl.span[0])}, ${landText(C, pl)}. Arrow keys move it, Delete removes it.`);
       h.onpointerdown = e => startItemDrag(e, pl.item);
       h.onkeydown = e => itemKey(e, pl.item);
-      h.onclick = () => { selItem = pl.item; selRid = null; refresh(); focusGrab(pl.item); };
+      h.onclick = () => { selItem = pl.item; selRid = null; selNote = null; refresh(); focusGrab(pl.item); };
       lane.appendChild(h);
     });
     if (C === lastC) drawSpots(C);
   }
+  const fmtLen = d => ({ .25: "a sixteenth", .5: "an eighth", 1: "one beat", 2: "two beats", 4: "a whole bar" }[d] || `${+d.toFixed(2)} beats`);
   const fmtBeat = b => { const bar = Math.floor(b / 4) + 1, bt = b % 4 + 1; return `bar ${bar}, beat ${Number.isInteger(bt) ? bt : bt.toFixed(1)}`; };
   function landText(C, pl) {
     if (!pl.target) return "";
@@ -342,7 +415,7 @@
     sp.best.notes.forEach(nt => {
       const g = document.createElement("div"); g.className = "brick ghost";
       g.style.setProperty("--c", r.c); g.style.left = (nt.beat * geom.px + 1) + "px"; g.style.width = Math.max(8, nt.dur * geom.px - 2) + "px";
-      g.style.bottom = brickBottom(nt.midi); g.textContent = nt.dur * geom.px > 20 ? T.spell(nt.midi, lastC.fl) : "";
+      placeBrick(g, nt); g.textContent = nt.dur * geom.px > 22 ? T.spell(nt.midi, lastC.fl) : "";
       lane.appendChild(g);
     });
     lane.querySelectorAll(".spot").forEach(d => d.classList.toggle("on", Math.abs(parseFloat(d.style.left) - (sp.start * geom.px - 7)) < .5));
@@ -439,6 +512,118 @@
     changed(true);
   }
 
+  /* ---------- writing your own notes ---------- */
+  const LENS = [[.25, "1/16"], [.5, "1/8"], [1, "Quarter"], [2, "Half"], [4, "Whole"]];
+  const GRIDS = [[.25, "1/16"], [.5, "1/8"], [1 / 3, "Triplet"], [1, "Beat"]];
+  const snapTo = (x, g) => Math.round(x / g + 1e-6) * g;
+  const floorTo = (x, g) => Math.floor(x / g + 1e-6) * g;
+  function hearNote(m) {
+    if (playing) return;
+    const tl = A.timeline(); tl.note(0, m, .55, .8, S.lead); tl.end = .7;
+    A.run(tl, { test: true });
+  }
+  function toggleMute(it, j) {
+    snap();
+    const sk = (it.skip || []).slice(), k = sk.indexOf(j);
+    if (k >= 0) sk.splice(k, 1); else sk.push(j);
+    it.skip = sk; setItems(items());
+    fillMsg = k >= 0 ? "Note brought back." : "Note muted. Tap it again to bring it back.";
+    changed(true);
+  }
+  function unlockLick(it) {
+    const pl = lastC.placed.find(p => p.item === it); if (!pl) return;
+    snap();
+    const add = pl.notes.filter(n => !n.muted).map(n => ({ beat: n.beat, dur: n.dur, midi: n.midi }));
+    setMyNotes(myNotes().concat(add)); setItems(items().filter(x => x !== it));
+    selItem = null; selNote = null; S.tool = "notes";
+    fillMsg = `${pl.riff.name} is now ${add.length} of your notes. Drag them, stretch them, or delete them.`;
+    changed(true);
+  }
+  function laneDown(e) {
+    if (!writing() || (e.button !== undefined && e.button !== 0)) return;
+    if (e.target.closest(".brick.lk")) return;           // lick notes: a tap mutes them (their own click handler)
+    const lane = $("#lane"), r = lane.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    if (y < HEAD) return;
+    const loopB = lastC.ctx.loopBeats, own = e.target.closest(".brick.own");
+    if (own || e.pointerType !== "touch") e.preventDefault();
+    if (own) {
+      const n = myNotes()[+own.dataset.own]; if (!n) return;
+      const br = own.getBoundingClientRect(), size = e.clientX > br.right - Math.min(12, br.width / 3);
+      snap(); selNote = n; selItem = null;
+      ndrag = { note: n, el: own, mode: size ? "size" : "move", x0: e.clientX, y0: e.clientY, beat0: n.beat, midi0: n.midi, dur0: n.dur, moved: false };
+    } else {
+      const beat = floorTo(x / geom.px, S.grid), midi = geom.hi - Math.floor((y - HEAD) / geom.row);
+      if (midi < geom.lo || midi > geom.hi || beat >= loopB - 1e-6) return;
+      // on a touch screen a drag on empty space scrolls the roll, so a note goes in only on a clean tap
+      if (e.pointerType === "touch") {
+        const x0 = e.clientX, y0 = e.clientY;
+        const up = ev => { if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 8) addNoteAt(beat, midi); };
+        document.addEventListener("pointerup", up, { once: true });
+        return;
+      }
+      snap();
+      const n = { beat: +beat.toFixed(4), dur: +Math.min(S.noteLen, loopB - beat).toFixed(4), midi };
+      setMyNotes(myNotes().concat([n])); selNote = n; selItem = null;
+      hearNote(midi);
+      drawLane(lastC = compute(0));
+      const el = [...document.querySelectorAll("#lane .brick.own")].find(b => myNotes()[+b.dataset.own] === n);
+      ndrag = { note: n, el, mode: "new", x0: e.clientX, y0: e.clientY, beat0: n.beat, midi0: midi, dur0: n.dur, moved: false };
+    }
+    document.body.classList.add("drawing");
+    document.addEventListener("pointermove", noteMove);
+    document.addEventListener("pointerup", noteUp, { once: true });
+    document.addEventListener("pointercancel", noteUp, { once: true });
+  }
+  function addNoteAt(beat, midi) {
+    const loopB = lastC.ctx.loopBeats; snap();
+    const n = { beat: +beat.toFixed(4), dur: +Math.min(S.noteLen, loopB - beat).toFixed(4), midi };
+    setMyNotes(myNotes().concat([n])); selNote = n; selItem = null; hearNote(midi); changed(true);
+  }
+  function noteMove(e) {
+    const d = ndrag; if (!d) return;
+    const dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+    if (!d.moved && Math.hypot(dx, dy) < 5) return;
+    d.moved = true;
+    const loopB = lastC.ctx.loopBeats, n = d.note, g = S.grid;
+    if (d.mode === "size" || d.mode === "new") {
+      const base = d.mode === "new" ? 0 : d.dur0;
+      n.dur = +Math.max(g, Math.min(loopB - n.beat, snapTo(base + dx / geom.px, g) || g)).toFixed(4);
+    } else {
+      n.beat = +Math.max(0, Math.min(loopB - n.dur, snapTo(d.beat0 + dx / geom.px, g))).toFixed(4);
+      const m = Math.max(geom.lo, Math.min(geom.hi, d.midi0 - Math.round(dy / geom.row)));
+      if (m !== n.midi) { n.midi = m; hearNote(m); }
+    }
+    if (d.el) { placeBrick(d.el, n); d.el.firstChild && d.el.firstChild.nodeType === 3 && (d.el.firstChild.nodeValue = n.dur * geom.px > 22 ? T.spell(n.midi, lastC.fl) : ""); }
+  }
+  function noteUp() {
+    document.removeEventListener("pointermove", noteMove);
+    document.body.classList.remove("drawing");
+    const d = ndrag; ndrag = null; if (!d) return;
+    if (!d.moved && d.mode === "move") { undoStack.pop(); hearNote(d.note.midi); refresh(); return; }
+    if (!d.moved && d.mode === "size") { undoStack.pop(); refresh(); return; }
+    setMyNotes(myNotes()); changed(true);
+  }
+  function editNote(fn) {
+    const n = selNote; if (!n || !myNotes().includes(n)) return;
+    snap(); fn(n, lastC.ctx.loopBeats);
+    n.beat = +n.beat.toFixed(4); n.dur = +n.dur.toFixed(4);
+    setMyNotes(myNotes()); changed(true);
+  }
+  const noteUpDown = d => editNote(n => { n.midi = Math.max(S.lo, Math.min(S.hi, n.midi + d)); hearNote(n.midi); });
+  const noteLeftRight = d => editNote((n, L) => { n.beat = Math.max(0, Math.min(L - n.dur, n.beat + d * S.grid)); });
+  const noteLen = d => editNote((n, L) => { n.dur = Math.max(S.grid, Math.min(L - n.beat, n.dur + d * S.grid)); });
+  function deleteNote() {
+    if (!selNote) return;
+    snap(); setMyNotes(myNotes().filter(x => x !== selNote)); selNote = null; changed(true);
+  }
+  function noteKeys(e) {
+    if (!writing() || !selNote || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    const k = e.key;
+    if (k === "Delete" || k === "Backspace") { e.preventDefault(); deleteNote(); }
+    else if (k === "ArrowUp" || k === "ArrowDown") { e.preventDefault(); noteUpDown(k === "ArrowUp" ? 1 : -1); }
+    else if (k === "ArrowLeft" || k === "ArrowRight") { e.preventDefault(); (e.shiftKey ? noteLen : noteLeftRight)(k === "ArrowRight" ? 1 : -1); }
+  }
+
   /* ---------- what you sing panel ---------- */
   function drawShelf() {
     document.querySelectorAll(".stab").forEach(b => b.setAttribute("aria-pressed", b.dataset.shelf === S.shelf));
@@ -456,17 +641,31 @@
     $("#aFill").textContent = pick ? `Put ${pick.name} on every chord` : "Every chord";
     if (undoProg !== S.prog) { undoStack = []; undoProg = S.prog; }
     $("#aUndo").disabled = !undoStack.length;
-    $("#aClear").disabled = !items().length;
+    $("#aClear").disabled = !items().length && !myNotes().length;
     let hint;
     if (fillMsg) { hint = fillMsg; fillMsg = null; }
+    else if (writing()) hint = "Tap an empty spot to add a note, or drag to draw a longer one. Drag a note to move it, drag its right edge to stretch it. Tap a lick's note to mute it. Tap the keys on the left to hear a pitch.";
     else if (pick) hint = `${pick.name} is picked. Tap a dot under the lane to place it (it stays picked), or drag it in. Gold dots land on the 3rd or 7th right on a chord change.`;
     else if (items().length) hint = "Tap a lick in the lane to select it, then move it. Or drag it to a new spot.";
     else hint = "Pick a lick from the shelf. Dots appear under the lane wherever it fits.";
     $("#aHint").textContent = hint;
   }
   function drawPractice(C) {
-    document.querySelectorAll(".segb").forEach(b => b.setAttribute("aria-pressed", b.dataset.src === S.src));
-    const scales = S.src === "scales";
+    document.querySelectorAll(".segb[data-src]").forEach(b => b.setAttribute("aria-pressed", b.dataset.src === S.src));
+    document.querySelectorAll(".segb[data-tool]").forEach(b => b.setAttribute("aria-pressed", b.dataset.tool === S.tool));
+    const scales = S.src === "scales", write = writing();
+    $("#shelfBox").hidden = write; $("#notesBox").hidden = !write; $("#aFill").hidden = write;
+    $("#toolHint").textContent = write ? "Write your own melody on the roll. Pink rows are chord tones, blue rows are the rest of the scale." : "Drop licks from the shelf onto the changes.";
+    const chipRow = (id, list, cur, set) => {
+      const box = $(id); box.innerHTML = "";
+      list.forEach(([v, label]) => {
+        const b = document.createElement("button"); b.type = "button"; b.className = "chip plain"; b.textContent = label;
+        b.setAttribute("aria-pressed", Math.abs(cur - v) < 1e-6); b.onclick = () => { set(v); saveS(); drawPractice(lastC); };
+        box.appendChild(b);
+      });
+    };
+    chipRow("#lenChips", LENS, S.noteLen, v => { S.noteLen = v; });
+    chipRow("#gridChips", GRIDS, S.grid, v => { S.grid = v; });
     $("#scalesBox").hidden = !scales; $("#licksBox").hidden = scales; $("#savedBox").hidden = scales; $("#drillWrap").hidden = scales;
     const pc = $("#patChips"); pc.innerHTML = "";
     Object.keys(PATTERNS).forEach(k => {
@@ -478,8 +677,11 @@
     $("#patHint").textContent = PATTERNS[S.pattern].desc;
     drawShelf();
     // selection tools
-    const pl = !scales && selItem ? C.placed.find(p => p.item === selItem) : null;
+    const pl = !scales && !write && selItem ? C.placed.find(p => p.item === selItem) : null;
     $("#selTools").hidden = !pl;
+    const sn = write && selNote && myNotes().includes(selNote) ? selNote : null;
+    $("#noteTools").hidden = !sn;
+    if (sn) $("#noteText").textContent = `Your note: ${pitch(sn.midi, C.fl)} at ${fmtBeat(sn.beat)}, ${fmtLen(sn.dur)} long. Arrow keys move it; Shift and the arrows change its length.`;
     if (pl) {
       $("#selText").textContent = `${pl.riff.name} at ${fmtBeat(pl.span[0])}, ${landText(C, pl)}${pl.chain ? ", linked to the lick before it" : ""}.`;
       $("#mUp").disabled = (selItem.nudge || 0) >= pl.nudgeMax; $("#mDown").disabled = (selItem.nudge || 0) <= pl.nudgeMin;
@@ -487,18 +689,26 @@
     // lane note
     let note;
     if (scales) note = `${PATTERNS[S.pattern].name} on all ${C.ctx.n} chords.`;
-    else if (!C.placed.length) note = "No licks placed yet.";
+    else if (!C.placed.length && !C.mine.length) note = write ? "Nothing on the roll yet. Tap anywhere to add a note." : "No licks placed yet.";
     else {
-      const g = C.placed.filter(p => p.rank === "gold").length, ch = C.placed.filter(p => p.chain).length;
-      note = `${C.placed.length} lick${C.placed.length > 1 ? "s" : ""} · ${g} land${g === 1 ? "s" : ""} on a change${ch ? ` · ${ch} linked` : ""}`;
-      if (C.skipped) note += ` · ${C.skipped} no longer fit${C.skipped > 1 ? "" : "s"} these settings`;
+      const parts = [];
+      if (C.placed.length) {
+        const g = C.placed.filter(p => p.rank === "gold").length, ch = C.placed.filter(p => p.chain).length;
+        parts.push(`${C.placed.length} lick${C.placed.length > 1 ? "s" : ""}`, `${g} land${g === 1 ? "s" : ""} on a change`);
+        if (ch) parts.push(`${ch} linked`);
+        const mu = C.placed.reduce((a, p) => a + p.notes.filter(n => n.muted).length, 0);
+        if (mu) parts.push(`${mu} note${mu > 1 ? "s" : ""} muted`);
+      }
+      if (C.mine.length) parts.push(`${C.mine.length} of your own note${C.mine.length > 1 ? "s" : ""}`);
+      note = parts.join(" · ");
+      if (C.skipped) note += ` · ${C.skipped} lick${C.skipped > 1 ? "s" : ""} no longer fit these settings`;
     }
     $("#laneNote").textContent = note;
     // drill note
     const DN = {
       same: "Every loop plays the same thing. Move licks yourself with Earlier, Later, and the step buttons.",
-      walk: "Each loop moves every lick one scale step: up, up, back, down, down, back. The rhythm stays; the starting note and the landing note change.",
-      shift: "Each loop starts every lick half a beat later, up to a beat and a half, then resets. A lick that runs past the end of the loop sits that loop out."
+      walk: "Each loop moves every lick one scale step: up, up, back, down, down, back. The rhythm stays; the starting note and the landing note change. Your own notes stay where you wrote them.",
+      shift: "Each loop starts every lick half a beat later, up to a beat and a half, then resets. A lick that runs past the end of the loop sits that loop out. Your own notes stay where you wrote them."
     };
     const MN = { listen: "", along: " The melody plays softly under you.", call: " Call and response: the melody plays one loop, then you sing the next loop alone.", band: " Only the band plays, so the notes are all yours." };
     $("#drillNote").textContent = ((scales ? "" : DN[S.drill]) + MN[S.mode]).trim();
@@ -556,15 +766,23 @@
     bind("#hiSel", "hi", true, () => { if (S.hi - S.lo < 12) S.lo = Math.max(36, S.hi - 12); });
     $("#clickSel").onchange = e => { S.click = e.target.value === "1"; changed(true); };
     $("#synthSel").onchange = e => { S.synth = e.target.value === "1"; A.useSynth = S.synth; saveS(); A.status(); };
-    document.querySelectorAll(".segb").forEach(b => b.onclick = () => { S.src = b.dataset.src; selItem = null; changed(true); });
+    document.querySelectorAll(".segb[data-src]").forEach(b => b.onclick = () => { S.src = b.dataset.src; selItem = null; selNote = null; changed(true); });
+    document.querySelectorAll(".segb[data-tool]").forEach(b => b.onclick = () => { S.tool = b.dataset.tool; selItem = null; selNote = null; selRid = null; saveS(); draw(); });
+    $("#lane").addEventListener("pointerdown", laneDown);
+    document.addEventListener("keydown", noteKeys);
+    $("#nUp").onclick = () => noteUpDown(1); $("#nDown").onclick = () => noteUpDown(-1);
+    $("#nLeft").onclick = () => noteLeftRight(-1); $("#nRight").onclick = () => noteLeftRight(1);
+    $("#nShort").onclick = () => noteLen(-1); $("#nLong").onclick = () => noteLen(1);
+    $("#nDel").onclick = deleteNote;
+    $("#mUnlock").onclick = () => selItem && unlockLick(selItem);
     document.querySelectorAll(".stab").forEach(b => b.onclick = () => { S.shelf = b.dataset.shelf; saveS(); drawShelf(); });
     $("#aFill").onclick = () => selRid && fillEvery(selRid);
-    $("#aUndo").onclick = () => { const prev = undoStack.pop(); if (prev) { setItems(prev); selItem = null; changed(true); } };
+    $("#aUndo").onclick = undo;
     let armed = false;
     $("#aClear").onclick = e => {
       const b = e.currentTarget;
       if (!armed) { armed = true; b.textContent = "Tap again to clear"; setTimeout(() => { armed = false; b.textContent = "Clear"; }, 3000); return; }
-      armed = false; b.textContent = "Clear"; snap(); setItems([]); selItem = null; changed(true);
+      armed = false; b.textContent = "Clear"; snap(); setItems([]); setMyNotes([]); selItem = null; selNote = null; changed(true);
     };
     $("#mUp").onclick = () => selItem && nudge(selItem, 1);
     $("#mDown").onclick = () => selItem && nudge(selItem, -1);
@@ -600,18 +818,18 @@
     set("#tempo", S.tempo); $("#tempoVal").textContent = S.tempo;
   }
   function saveArrangement() {
-    const its = items();
-    if (!its.length) { $("#sName").value = ""; $("#sName").placeholder = "Place a lick first"; return; }
+    const its = items(), mine = myNotes();
+    if (!its.length && !mine.length) { $("#sName").value = ""; $("#sName").placeholder = "Place a lick first"; return; }
     const C = lastC;
-    const name = ($("#sName").value || "").trim() || `${C.prog.name} in ${T.KEYNAMES[S.key]}, ${its.map(i => riffById(i.rid).name).filter((v, i, a) => a.indexOf(v) === i).slice(0, 2).join(" + ")}`;
-    saved.unshift({ id: String(Date.now()), name, prog: S.prog, key: S.key, style: S.style, approach: S.approach, bars: S.bars, items: its.map(i => ({ rid: i.rid, start: i.start, nudge: i.nudge || 0 })) });
+    const name = ($("#sName").value || "").trim() || `${C.prog.name} in ${T.KEYNAMES[S.key]}, ${(its.length ? its.map(i => riffById(i.rid).name).filter((v, i, a) => a.indexOf(v) === i).slice(0, 2).join(" + ") : "my melody")}`;
+    saved.unshift({ id: String(Date.now()), name, prog: S.prog, key: S.key, style: S.style, approach: S.approach, bars: S.bars, items: its.map(i => Object.assign({ rid: i.rid, start: i.start, nudge: i.nudge || 0 }, i.skip && i.skip.length ? { skip: i.skip.slice() } : {})), notes: cloneNotes(mine) });
     saved = saved.slice(0, 60); persist(); $("#sName").value = ""; $("#sName").placeholder = "Saved. Name the next one"; drawSaved();
   }
   function loadArrangement(s) {
     if (!D.PROGRESSIONS.some(p => p.id === s.prog)) { $("#sName").placeholder = "That progression was deleted"; return; }
     Object.assign(S, { prog: s.prog, key: s.key, approach: s.approach, bars: s.bars, src: "licks" });
     const st = s.style === "rnb" ? "neosoul" : s.style; if (B.FEELS[st]) S.feels[s.prog] = st; syncFeel();
-    snap(); work[s.prog] = s.items.map(i => Object.assign({}, i)); persist();
+    snap(); work[s.prog] = cloneItems(s.items || []); notesWork[s.prog] = cloneNotes((s.notes || []).filter(okNote)); persist();
     selItem = null; cur = 0; changed(true);
   }
 
@@ -667,7 +885,8 @@
         if (S.click && !drums) for (let k = 0; k < ctx.beats[i]; k++) { const beat = ctx.starts[i] + k; tl.click(base + beat * b, beat === 0 ? 2 : beat % 4 === 0 ? 1 : 0); }
         tl.ui(base + ctx.starts[i] * b, () => { markChord(i); setStatus(main, detailFor(Cp, i, p, loops), yours); });
       });
-      if (pass) Cp.placed.forEach(pl => pl.notes.forEach(nt => {
+      if (pass) Cp.placed.map(pl => pl.notes).concat([Cp.mine || []]).forEach(ns => ns.forEach(nt => {
+        if (nt.muted) return;
         const s0 = sw(nt.beat), s1 = sw(nt.beat + nt.dur), t = base + s0 * b, d = (s1 - s0) * b;
         tl.note(t, nt.midi, d * .92, nt.vel * (S.mode === "along" ? .5 : 1) * (S.lead === "piano" ? 1 : .9), S.lead);
         tl.ui(t, () => hit(nt.i, true)); tl.ui(t + d * .85, () => hit(nt.i, false));
@@ -786,7 +1005,7 @@
   function bindBackup() {
     const msg = t => { $("#bkMsg").textContent = t; };
     $("#bkCopy").onclick = () => {
-      const txt = JSON.stringify({ app: "over-the-changes", v: 1, customs, saved, work });
+      const txt = JSON.stringify({ app: "over-the-changes", v: 2, customs, saved, work, notes: notesWork });
       $("#bkText").value = txt;
       const sel = () => { $("#bkText").focus(); $("#bkText").select(); msg("Selected. Copy it with your keyboard or the Copy menu."); };
       try { navigator.clipboard.writeText(txt).then(() => msg("Copied."), sel); } catch (e) { sel(); }
@@ -796,8 +1015,9 @@
       if (!d || d.app !== "over-the-changes") { msg("That text isn't a backup from this app."); return; }
       let np = 0, ns = 0;
       (d.customs || []).filter(validProg).forEach(c => { const i = customs.findIndex(x => x.id === c.id); if (i >= 0) customs[i] = c; else { customs.push(c); np++; } });
-      (d.saved || []).forEach(s => { if (s && s.items && !saved.some(x => x.id === s.id)) { saved.push(s); ns++; } });
+      (d.saved || []).forEach(s => { if (s && (s.items || s.notes) && !saved.some(x => x.id === s.id)) { s.items = s.items || []; saved.push(s); ns++; } });
       Object.keys(d.work || {}).forEach(k => { if (!work[k] || !work[k].length) work[k] = d.work[k]; });
+      Object.keys(d.notes || {}).forEach(k => { if (Array.isArray(d.notes[k]) && (!notesWork[k] || !notesWork[k].length)) notesWork[k] = d.notes[k].filter(okNote); });
       saveCustoms(); persist(); mergeCustoms(); buildProgSelect();
       msg(`Added ${np} progression${np === 1 ? "" : "s"} and ${ns} saved arrangement${ns === 1 ? "" : "s"}.`);
       changed(false);
@@ -811,6 +1031,9 @@
     if (S.style === "rnb") { S.feels[S.prog] = S.feels[S.prog] || "neosoul"; }
     Object.keys(S.feels).forEach(k => { if (S.feels[k] === "rnb") S.feels[k] = "neosoul"; if (!B.FEELS[S.feels[k]]) delete S.feels[k]; });
     if (!["piano", "lead", "soft"].includes(S.lead)) S.lead = "piano";
+    if (!["licks", "notes"].includes(S.tool)) S.tool = "licks";
+    if (!GRIDS.some(g => Math.abs(g[0] - S.grid) < 1e-6)) S.grid = .25;
+    if (!LENS.some(g => Math.abs(g[0] - S.noteLen) < 1e-6)) S.noteLen = 1;
     syncFeel();
     if (!PATTERNS[S.pattern]) S.pattern = "five";
     if (!["scales", "licks"].includes(S.src)) S.src = "licks";
@@ -836,5 +1059,5 @@
   A.loadPiano();
   tick();
   /* for tests */
-  window.OTC = { S, compute, RIFFS, PATTERNS, items, placeLicks, ctxNow };
+  window.OTC = { S, compute, RIFFS, PATTERNS, items, placeLicks, ctxNow, myNotes };
 })();
