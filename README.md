@@ -6,7 +6,9 @@ A focused practice app for singing over chord progressions. A progression loops 
 
 ## What's in it
 
-- **The changes.** All 51 progressions from Vocal Licks (pop and R&B, rock and blues, and '50s, '60s, and '70s classics), in any key, with 1 or 2 bars per chord. Two band sounds: **Piano pads** (each chord held, root in the bass) and **R&B keys** (rootless 9th chords and a moving bass line). Each chord card shows the chord's scale (its mode), what to sing, the notes to land on, and the notes not to hold. Tap a card to hear the chord; the keyboard below it maps the notes across your range.
+- **The changes.** All 51 progressions from Vocal Licks (pop and R&B, rock and blues, and '50s, '60s, and '70s classics), in any key, with 1 or 2 bars per chord. Each chord card shows the chord's scale (its mode), what to sing, the notes to land on, and the notes not to hold. Tap a card to hear the chord; the keyboard below it maps the notes across your range.
+- **Feels.** Eleven feels change the rhythm, the chord colors, and the drums: Piano pads, Ballad, Pop, Rock, Rock and roll, Blues shuffle, Neo soul, Neo jazz, Jazz swing, Gospel, and Bossa nova. Each progression remembers its own feel, and each starts in one that suits its era. Swung feels swing the melody too. Drums can be turned off.
+- **Melody sound.** The chords stay on the grand piano. The melody (your scale or licks) can play on the piano, a synth lead, or a soft synth.
 - **Make my own.** Build a loop of 2 to 8 chords in a major, minor, Dorian, Mixolydian, or blues feel. Every chord can be half a bar, 1 bar, or 2 bars long. Your progressions show up in the list under My progressions.
 - **Scales.** Every chord gets its own run: a five-note scale on the chord's mode, the pentatonic that fits it, the arpeggio, or the guide tones (3rd, then 7th).
 - **Licks.** A shelf of Crystal Cherelle's five building blocks plus the Vocal Licks licks and runs that land on a chord tone. Pick one and dots appear under the lane wherever it fits. Gold dots land on the 3rd or 7th right on a chord change. Tap a dot or drag the lick in.
@@ -34,8 +36,8 @@ index.html            the page
 css/app.css           the zine look            css/fonts.css   local fonts
 js/theory.js          chord scales, landing, lock spots (from Vocal Licks)
 js/data.js            progressions, riff blocks, licks (from Vocal Licks)
-js/audio.js           Salamander piano loader, synth fallback, iPad unlock, scheduler
-js/band.js            voicings and the two band sounds
+js/audio.js           Salamander piano loader, synth lead and soft synth, drum kit, iPad unlock, scheduler
+js/band.js            voicings, the eleven feels, and the drum patterns
 js/app.js             everything on the screen
 tests/theory.test.js  node tests/theory.test.js
 tools/sync_vocallicks.py   copies theory.js and data.js from a Vocal Licks checkout and runs the tests

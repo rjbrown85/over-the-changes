@@ -1,6 +1,6 @@
 /* Over the Changes offline cache. The page and scripts are fetched fresh when online; everything else comes from the cache.
    Bump CACHE on each release. */
-const CACHE = "otc-2026-09-30a";
+const CACHE = "otc-2026-09-30b";
 const CORE = ["./", "index.html", "manifest.webmanifest", "css/app.css", "css/fonts.css", "js/theory.js", "js/data.js", "js/audio.js", "js/band.js", "js/app.js",
   "vendor/Tone.min.js", "icons/apple-touch-icon.png", "icons/icon-192.png", "icons/favicon-32.png",
   "fonts/courier-prime-400.woff2", "fonts/courier-prime-700.woff2", "fonts/dela-gothic-one-400.woff2", "fonts/permanent-marker-400.woff2"];

@@ -19,7 +19,7 @@
 <div class="wrap">
   <header class="mast">
     <h1><span class="cut c1">Over the</span> <span class="cut c2">Changes</span></h1>
-    <p class="intro">Loop a chord progression on piano and sing over it. Run a scale on every chord, or place a lick on the changes, then move it in time and up and down the scale until it lands.</p>
+    <p class="intro">Loop a chord progression in the feel you want (neo soul, jazz swing, rock and roll, and more) and sing over it. Run a scale on every chord, or place a lick on the changes, then move it in time and up and down the scale until it lands.</p>
   </header>
 
   <!-- 1. the progression -->
@@ -28,12 +28,14 @@
       <h2 class="tag" id="chHead">The changes</h2>
       <p class="progline" id="progLine"></p>
     </div>
-    <div class="fields">
+    <div class="fields bandrow">
       <label class="wide" for="progSel">Progression<select id="progSel"></select></label>
       <label for="keySel">Key<select id="keySel"></select></label>
-      <label for="soundSel">Band<select id="soundSel"></select></label>
+      <label for="soundSel">Feel<select id="soundSel"></select></label>
       <label for="barsSel">Bars per chord<select id="barsSel"><option value="1">1 bar</option><option value="2">2 bars</option></select></label>
+      <label for="drumSel" id="drumWrap">Drums<select id="drumSel"><option value="1">On</option><option value="0">Off</option></select></label>
     </div>
+    <p class="feelnote" id="feelNote"></p>
     <p class="pnote" id="progNote"></p>
     <div class="row">
       <button class="btn" type="button" id="pbNew">+ Make my own</button>
@@ -120,11 +122,15 @@
     </div>
 
     <div class="fields drillrow">
-      <label for="modeSel">Piano plays<select id="modeSel">
-        <option value="listen">The notes with you</option>
-        <option value="along">The notes, quietly</option>
+      <label for="leadSel">Melody sound<select id="leadSel">
+        <option value="piano">Piano</option>
+        <option value="lead">Synth lead</option>
+        <option value="soft">Soft synth</option></select></label>
+      <label for="modeSel">Melody plays<select id="modeSel">
+        <option value="listen">With you</option>
+        <option value="along">Softly</option>
         <option value="call">Call and response</option>
-        <option value="band">Only the chords</option></select></label>
+        <option value="band">Not at all</option></select></label>
       <label for="drillSel" id="drillWrap">Each loop<select id="drillSel">
         <option value="same">Stays the same</option>
         <option value="walk">Step walk</option>
@@ -157,7 +163,7 @@
       <label for="apSel">Licks use<select id="apSel">
         <option value="key">One scale for the whole key</option>
         <option value="chord">Each chord's own scale</option></select></label>
-      <label for="clickSel">Click<select id="clickSel"><option value="1">On</option><option value="0">Off</option></select></label>
+      <label for="clickSel">Click (when drums are off)<select id="clickSel"><option value="1">On</option><option value="0">Off</option></select></label>
       <label for="synthSel">Sound<select id="synthSel"><option value="0">Grand piano</option><option value="1">Simple synth</option></select></label>
     </div>
     <div class="soundrow">
