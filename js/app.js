@@ -11,7 +11,7 @@
   };
 
   /* ---------- settings ---------- */
-  const DEF = { prog: "axis", key: 7, style: "pads", bars: 1, src: "licks", pattern: "five", drill: "same", mode: "listen", loops: 4,
+  const DEF = { prog: "axis", key: 7, style: "pop", feels: {}, drums: true, lead: "piano", bars: 1, src: "licks", pattern: "five", drill: "same", mode: "listen", loops: 4,
     tempo: 70, lo: 52, hi: 72, approach: "key", click: true, synth: false, shelf: "blocks" };
   const S = Object.assign({}, DEF, store.get("otc-settings", {}));
   const saveS = () => store.set("otc-settings", S);
@@ -21,7 +21,7 @@
   const RIFFS = (() => {
     const blocks = D.ORDER.map(k => ({ id: k, name: D.BLOCKS[k].name, kind: "pent", steps: D.SETS.minor.blocks[k].n, beats: D.SETS.minor.blocks[k].b,
       vel: D.SETS.minor.blocks[k].v, c: D.BLOCKS[k].c, on: D.BLOCKS[k].on, desc: `${D.BLOCKS[k].rhythm}. ${D.BLOCKS[k].tip}` }));
-    const mk = v => ({ id: v.id, name: v.changesName || v.name, kind: v.kind, steps: v.steps, beats: v.beats, vel: null, c: v.c, on: "var(--ink)", desc: v.desc });
+    const mk = v => ({ id: v.id, name: v.changesName || v.name, kind: v.kind, steps: v.steps, beats: v.beats, vel: null, c: v.c, on: /blue/.test(v.c) ? "#fff" : "var(--ink)", desc: v.desc });
     const licks = D.VOCAB.filter(v => v.land && v.cat !== "run").map(mk);
     const runs = D.VOCAB.filter(v => v.land && v.cat === "run").map(mk);
     return { blocks, licks, runs, all: blocks.concat(licks, runs) };
@@ -47,6 +47,13 @@
   mergeCustoms();
   const saveCustoms = () => store.set("otc-custom-progs", customs);
   const progObj = () => D.PROGRESSIONS.find(p => p.id === S.prog) || D.PROGRESSIONS[0];
+  /* each progression remembers its own feel; until you pick one it gets a feel that suits its era */
+  function defaultFeel(p) {
+    if (p.tonality === "blues") return "blues";
+    return { "Pop & R&B": "neosoul", "Rock & blues": "rock", "'50s classics": "rockroll", "'60s classics": "pop", "'70s classics": "pop" }[p.group] || "pads";
+  }
+  const feelFor = p => (B.FEELS[S.feels[p.id]] ? S.feels[p.id] : defaultFeel(p));
+  const syncFeel = () => { S.style = feelFor(progObj()); };
 
   /* ---------- arrangements: a working copy per progression, plus saved ones ---------- */
   let work = store.get("otc-work", {}), saved = store.get("otc-saved", []);
@@ -176,7 +183,8 @@
     const { prog, ctx, fl } = C;
     $("#progLine").textContent = `${numerals(prog)} in ${T.spell(S.key, fl)} ${T.TONALITY[prog.tonality].label}`;
     const src = prog.src ? ` Source: <a href="${esc(prog.src.u)}" target="_blank" rel="noopener">${esc(prog.src.t)}</a>.` : "";
-    $("#progNote").innerHTML = `${esc(prog.note || "")}${src} <span class="hint">${esc(B.SOUNDS[S.style].blurb)}</span>`;
+    $("#progNote").innerHTML = `${esc(prog.note || "")}${src}`;
+    $("#feelNote").textContent = `${B.FEELS[S.style].name}: ${B.FEELS[S.style].blurb}`;
     $("#pbEdit").hidden = !prog.custom;
     const cards = $("#cards"); cards.innerHTML = "";
     ctx.chords.forEach((ch, i) => {
@@ -437,7 +445,7 @@
     const list = RIFFS[S.shelf] || RIFFS.blocks, box = $("#shelfChips"); box.innerHTML = "";
     list.forEach(r => {
       const b = document.createElement("button"); b.type = "button"; b.className = "chip"; b.textContent = r.name; b.dataset.rid = r.id;
-      b.style.setProperty("--c", r.c); b.setAttribute("aria-pressed", r.id === selRid);
+      b.style.setProperty("--c", r.c); b.style.setProperty("--on", /blue/.test(r.c) ? "#fff" : "var(--ink)"); b.setAttribute("aria-pressed", r.id === selRid);
       b.onclick = () => { selRid = selRid === r.id ? null : r.id; selItem = null; refresh(); };
       b.onpointerdown = e => startShelfDrag(e, r.id);
       box.appendChild(b);
@@ -463,7 +471,7 @@
     const pc = $("#patChips"); pc.innerHTML = "";
     Object.keys(PATTERNS).forEach(k => {
       const b = document.createElement("button"); b.type = "button"; b.className = "chip"; b.textContent = PATTERNS[k].name;
-      b.style.setProperty("--c", PATTERNS[k].c); b.setAttribute("aria-pressed", S.pattern === k);
+      b.style.setProperty("--c", PATTERNS[k].c); b.style.setProperty("--on", /blue/.test(PATTERNS[k].c) ? "#fff" : "var(--ink)"); b.setAttribute("aria-pressed", S.pattern === k);
       b.onclick = () => { S.pattern = k; changed(true); };
       pc.appendChild(b);
     });
@@ -492,7 +500,7 @@
       walk: "Each loop moves every lick one scale step: up, up, back, down, down, back. The rhythm stays; the starting note and the landing note change.",
       shift: "Each loop starts every lick half a beat later, up to a beat and a half, then resets. A lick that runs past the end of the loop sits that loop out."
     };
-    const MN = { listen: "", along: " The piano plays the notes softly under you.", call: " Call and response: the piano plays a loop, then you sing the next loop alone.", band: " The piano plays only the chords, so the notes are all yours." };
+    const MN = { listen: "", along: " The melody plays softly under you.", call: " Call and response: the melody plays one loop, then you sing the next loop alone.", band: " Only the band plays, so the notes are all yours." };
     $("#drillNote").textContent = ((scales ? "" : DN[S.drill]) + MN[S.mode]).trim();
     drawSaved();
   }
@@ -528,7 +536,7 @@
   function buildControls() {
     buildProgSelect();
     $("#keySel").innerHTML = T.KEYNAMES.map((k, i) => `<option value="${i}">${k}</option>`).join("");
-    $("#soundSel").innerHTML = Object.keys(B.SOUNDS).map(k => `<option value="${k}">${B.SOUNDS[k].name}</option>`).join("");
+    $("#soundSel").innerHTML = B.ORDER.map(k => `<option value="${k}">${B.FEELS[k].name}</option>`).join("");
     const nm = m => T.SHARP[mod(m)].replace("#", "♯") + (Math.floor(m / 12) - 1);
     let lo = ""; for (let m = 36; m <= 67; m++) lo += `<option value="${m}">${nm(m)}</option>`;
     let hi = ""; for (let m = 55; m <= 88; m++) hi += `<option value="${m}">${nm(m)}</option>`;
@@ -538,8 +546,10 @@
       if (after) after();
       changed(true);
     });
-    bind("#progSel", "prog", false, () => { selItem = null; cur = 0; $("#pbPanel").hidden = true; });
-    bind("#keySel", "key", true); bind("#soundSel", "style"); bind("#barsSel", "bars", true);
+    bind("#progSel", "prog", false, () => { selItem = null; cur = 0; $("#pbPanel").hidden = true; syncFeel(); });
+    bind("#keySel", "key", true); bind("#soundSel", "style", false, () => { S.feels[S.prog] = S.style; }); bind("#barsSel", "bars", true);
+    $("#drumSel").onchange = e => { S.drums = e.target.value === "1"; changed(true); };
+    bind("#leadSel", "lead");
     bind("#modeSel", "mode"); bind("#drillSel", "drill"); bind("#loopsSel", "loops", true);
     bind("#apSel", "approach");
     bind("#loSel", "lo", true, () => { if (S.hi - S.lo < 12) S.hi = Math.min(88, S.lo + 12); });
@@ -585,6 +595,8 @@
     set("#progSel", S.prog); set("#keySel", S.key); set("#soundSel", S.style); set("#barsSel", S.bars);
     set("#modeSel", S.mode); set("#drillSel", S.drill); set("#loopsSel", S.loops); set("#apSel", S.approach);
     set("#loSel", S.lo); set("#hiSel", S.hi); set("#clickSel", S.click ? 1 : 0); set("#synthSel", S.synth ? 1 : 0);
+    set("#drumSel", S.drums ? 1 : 0); set("#leadSel", S.lead);
+    $("#drumWrap").hidden = !B.hasDrums(S.style);
     set("#tempo", S.tempo); $("#tempoVal").textContent = S.tempo;
   }
   function saveArrangement() {
@@ -597,7 +609,8 @@
   }
   function loadArrangement(s) {
     if (!D.PROGRESSIONS.some(p => p.id === s.prog)) { $("#sName").placeholder = "That progression was deleted"; return; }
-    Object.assign(S, { prog: s.prog, key: s.key, style: s.style, approach: s.approach, bars: s.bars, src: "licks" });
+    Object.assign(S, { prog: s.prog, key: s.key, approach: s.approach, bars: s.bars, src: "licks" });
+    const st = s.style === "rnb" ? "neosoul" : s.style; if (B.FEELS[st]) S.feels[s.prog] = st; syncFeel();
     snap(); work[s.prog] = s.items.map(i => Object.assign({}, i)); persist();
     selItem = null; cur = 0; changed(true);
   }
@@ -635,6 +648,8 @@
     const vo = B.voicings(ctx.chords, S.style);
     for (let k = 0; k < 4; k++) { tl.click(k * b, k === 0 ? 1 : 0); const kk = k; tl.ui(k * b, () => setStatus("Count-in", `${kk + 1} of 4 · ${C0.prog.name}, ${S.tempo} bpm`)); }
     const t0 = 4 * b, varies = S.src === "licks" && S.drill !== "same";
+    const feel = B.FEELS[S.style], drums = S.drums && B.hasDrums(S.style);
+    const sw = x => { const i = Math.floor(x / 4) * 4; return i + B.swingT(x - i, feel.swing); };   // swing the melody with the band
     for (let p = 0; p < n; p++) {
       const base = t0 + p * ctx.loopBeats * b;
       const Cp = varies ? compute(p) : C0;
@@ -646,15 +661,16 @@
         ph = { t: performance.now(), dur: ctx.loopBeats * b * 1000 };
         const ll = loopLabel(Cp); if (ll) $("#laneNote").textContent = ll;
       });
+      if (drums) B.drums(tl, base, ctx.loopBeats, S.style, b);
       ctx.chords.forEach((ch, i) => {
         B.comp(tl, base + ctx.starts[i] * b, ctx.beats[i], ch, ctx.chords[(i + 1) % ctx.n], S.style, b, vo[i]);
-        if (S.click) for (let k = 0; k < ctx.beats[i]; k++) { const beat = ctx.starts[i] + k; tl.click(base + beat * b, beat === 0 ? 2 : beat % 4 === 0 ? 1 : 0); }
+        if (S.click && !drums) for (let k = 0; k < ctx.beats[i]; k++) { const beat = ctx.starts[i] + k; tl.click(base + beat * b, beat === 0 ? 2 : beat % 4 === 0 ? 1 : 0); }
         tl.ui(base + ctx.starts[i] * b, () => { markChord(i); setStatus(main, detailFor(Cp, i, p, loops), yours); });
       });
       if (pass) Cp.placed.forEach(pl => pl.notes.forEach(nt => {
-        const t = base + nt.beat * b;
-        tl.note(t, nt.midi, nt.dur * b * .92, nt.vel * (S.mode === "along" ? .5 : 1));
-        tl.ui(t, () => hit(nt.i, true)); tl.ui(t + nt.dur * b * .85, () => hit(nt.i, false));
+        const s0 = sw(nt.beat), s1 = sw(nt.beat + nt.dur), t = base + s0 * b, d = (s1 - s0) * b;
+        tl.note(t, nt.midi, d * .92, nt.vel * (S.mode === "along" ? .5 : 1) * (S.lead === "piano" ? 1 : .9), S.lead);
+        tl.ui(t, () => hit(nt.i, true)); tl.ui(t + d * .85, () => hit(nt.i, false));
       }));
     }
     const tagT = t0 + n * ctx.loopBeats * b;
@@ -791,7 +807,11 @@
   /* ---------- start ---------- */
   function validate() {
     if (!D.PROGRESSIONS.some(p => p.id === S.prog)) S.prog = "axis";
-    if (!B.SOUNDS[S.style]) S.style = "pads";
+    if (typeof S.feels !== "object" || !S.feels || Array.isArray(S.feels)) S.feels = {};
+    if (S.style === "rnb") { S.feels[S.prog] = S.feels[S.prog] || "neosoul"; }
+    Object.keys(S.feels).forEach(k => { if (S.feels[k] === "rnb") S.feels[k] = "neosoul"; if (!B.FEELS[S.feels[k]]) delete S.feels[k]; });
+    if (!["piano", "lead", "soft"].includes(S.lead)) S.lead = "piano";
+    syncFeel();
     if (!PATTERNS[S.pattern]) S.pattern = "five";
     if (!["scales", "licks"].includes(S.src)) S.src = "licks";
     if (!RIFFS[S.shelf]) S.shelf = "blocks";

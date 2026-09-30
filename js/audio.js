@@ -127,10 +127,75 @@
     g.gain.exponentialRampToValueAtTime(.0001, t + dur + .18);
     o.connect(g); o2.connect(g2); g2.connect(g); g.connect(out); o.start(t); o2.start(t); o.stop(t + dur + .25); o2.stop(t + dur + .25);
   }
-  function play(m, t, dur, vel, out) {
+  function play(m, t, dur, vel, out, inst) {
+    if (inst === "lead") return lead(m, t, dur, vel, out);
+    if (inst === "soft") return soft(m, t, dur, vel, out);
     if (runSampler) runSampler.triggerAttackRelease(Tone.Frequency(m, "midi").toNote(), Math.max(.05, dur), t, Math.max(.05, Math.min(1, vel)));
     else pluck(m, t, dur, vel, out);
   }
+  /* synth lead for the melody: two detuned saws through a lowpass that closes after the attack, with a little delayed vibrato */
+  function lead(m, t, dur, vel, out) {
+    const f = hz(m), g = ctx.createGain(), lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.Q.value = 2.5;
+    lp.frequency.setValueAtTime(f * 7, t); lp.frequency.exponentialRampToValueAtTime(Math.max(600, f * 3), t + .18);
+    const pk = .11 * Math.max(.3, vel), end = t + Math.max(.06, dur);
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(pk, t + .015);
+    g.gain.setTargetAtTime(pk * .72, t + .03, .08); g.gain.setValueAtTime(pk * .72, end); g.gain.exponentialRampToValueAtTime(.0001, end + .12);
+    const vib = ctx.createOscillator(), vg = ctx.createGain(); vib.frequency.value = 5.6;
+    vg.gain.setValueAtTime(0, t); vg.gain.setValueAtTime(0, t + .25); vg.gain.linearRampToValueAtTime(f * .006, t + .5);
+    vib.connect(vg);
+    [-7, 7].forEach(cents => {
+      const o = ctx.createOscillator(); o.type = "sawtooth"; o.frequency.value = f; o.detune.value = cents;
+      vg.connect(o.frequency); o.connect(lp); o.start(t); o.stop(end + .15);
+    });
+    const sq = ctx.createOscillator(), sg = ctx.createGain(); sq.type = "square"; sq.frequency.value = f / 2; sg.gain.value = .35;
+    sq.connect(sg); sg.connect(lp); sq.start(t); sq.stop(end + .15);
+    vib.start(t); vib.stop(end + .15);
+    lp.connect(g); g.connect(out);
+  }
+  /* a soft, flute-like synth: sine plus a quiet triangle an octave up, slow attack */
+  function soft(m, t, dur, vel, out) {
+    const f = hz(m), g = ctx.createGain(), end = t + Math.max(.06, dur), pk = .2 * Math.max(.3, vel);
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(pk, t + .04);
+    g.gain.setTargetAtTime(pk * .8, t + .06, .1); g.gain.setValueAtTime(pk * .8, end); g.gain.exponentialRampToValueAtTime(.0001, end + .18);
+    const o = ctx.createOscillator(), o2 = ctx.createOscillator(), g2 = ctx.createGain();
+    o.type = "sine"; o.frequency.value = f; o2.type = "triangle"; o2.frequency.value = f * 2; g2.gain.value = .12;
+    const vib = ctx.createOscillator(), vg = ctx.createGain(); vib.frequency.value = 5; vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(f * .004, t + .45);
+    vib.connect(vg); vg.connect(o.frequency);
+    o.connect(g); o2.connect(g2); g2.connect(g); g.connect(out);
+    [o, o2, vib].forEach(x => { x.start(t); x.stop(end + .22); });
+  }
+  /* ---------- drums (synthesized) ---------- */
+  let noiseBuf = null;
+  function noise() {
+    if (noiseBuf) return noiseBuf;
+    noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return noiseBuf;
+  }
+  function hit(t, dur, type, freq, q, pk, out) {
+    const s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = noise(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    g.gain.setValueAtTime(pk, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(out); s.start(t, Math.random() * .5); s.stop(t + dur + .02);
+  }
+  function tone(t, f0, f1, dur, pk, type, out) {
+    const o = ctx.createOscillator(), g = ctx.createGain(); o.type = type || "sine";
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur * .7);
+    g.gain.setValueAtTime(pk, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    o.connect(g); g.connect(out); o.start(t); o.stop(t + dur + .02);
+  }
+  function drum(t, kind, v, out) {
+    const L = A.drumLevel * v;
+    if (kind === "k") tone(t, 130, 45, .32, .75 * L, "sine", out);
+    else if (kind === "s") { hit(t, .17, "bandpass", 1900, .7, .32 * L, out); tone(t, 210, 160, .1, .22 * L, "triangle", out); }
+    else if (kind === "r") { tone(t, 1750, 1650, .04, .16 * L, "triangle", out); hit(t, .03, "highpass", 2500, .7, .1 * L, out); }
+    else if (kind === "h") hit(t, .045, "highpass", 7500, .7, .14 * L, out);
+    else if (kind === "o") hit(t, .28, "highpass", 7000, .7, .1 * L, out);
+    else if (kind === "f") hit(t, .05, "bandpass", 5500, 1.2, .08 * L, out);
+    else if (kind === "y") { hit(t, .5, "bandpass", 6200, 1.4, .1 * L, out); tone(t, 5200, 5000, .25, .012 * L, "sine", out); }
+  }
+  A.drumLevel = .7;
   /* woodblock click. level 2: bar one of the loop, 1: other downbeats, 0: the rest */
   function click(t, level, out) {
     const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
@@ -147,7 +212,8 @@
     const ev = [];
     return {
       ev, end: 0,
-      note(t, m, d, v) { ev.push({ t, k: "n", m, d, v }); },
+      note(t, m, d, v, inst) { ev.push({ t, k: "n", m, d, v, inst }); },
+      drum(t, kind, v) { ev.push({ t, k: "d", kind, v }); },
       notes(t, ms, d, v, strum) { ms.forEach((m, i) => ev.push({ t: t + i * (strum || 0), k: "n", m, d, v })); },
       click(t, level) { ev.push({ t, k: "c", a: level || 0 }); },
       ui(t, fn) { ev.push({ t, k: "u", fn }); }
@@ -177,7 +243,7 @@
       const horizon = ctx.currentTime + 1.5;
       while (i < evs.length && t0 + evs[i].t < horizon) {
         const e = evs[i++], t = t0 + e.t;
-        if (e.k === "n") play(e.m, t, e.d, e.v, g); else if (e.k === "c") click(t, e.a, g); else if (e.k === "u") at(t, e.fn);
+        if (e.k === "n") play(e.m, t, e.d, e.v, g, e.inst); else if (e.k === "d") drum(t, e.kind, e.v, g); else if (e.k === "c") click(t, e.a, g); else if (e.k === "u") at(t, e.fn);
       }
     };
     pump(); pumpTimer = setInterval(pump, 100);
